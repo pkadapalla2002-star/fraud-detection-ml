@@ -1,0 +1,11 @@
+# Large data file — do not commit
+creditcard.csv
+data/
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Logs
+*.log
