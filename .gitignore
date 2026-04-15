@@ -5,6 +5,8 @@ data/
 # Python
 __pycache__/
 *.pyc
+
+# Secrets — never commit
 .env
 
 # Logs

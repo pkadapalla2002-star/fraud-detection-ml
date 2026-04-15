@@ -7,9 +7,11 @@ Endpoints:
   GET  /model/info     — model metadata & metrics
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional
+from dotenv import load_dotenv
 import joblib
 import json
 import numpy as np
@@ -17,10 +19,30 @@ import pandas as pd
 import shap
 import os
 
+load_dotenv()
+
+# ── API Key Auth ──────────────────────────────────────────────────────────────
+_raw_keys = os.getenv("API_KEYS", "")
+# Parse "name:key,name:key" format → set of valid keys
+VALID_API_KEYS: set[str] = {
+    part.split(":")[1] for part in _raw_keys.split(",") if ":" in part
+}
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def require_api_key(key: str = Security(api_key_header)) -> str:
+    if not key or key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+    return key
+
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Fraud Detection API",
-    description="XGBoost-based credit card fraud detection with SHAP explainability.",
+    description=(
+        "XGBoost-based credit card fraud detection with SHAP explainability.\n\n"
+        "All endpoints except `/health` require an `X-API-Key` header.\n\n"
+        "**Demo keys:** `dash-key-123` · `analyst-key-456` · `admin-key-789`"
+    ),
     version="1.0.0",
 )
 
@@ -125,7 +147,7 @@ def health():
 
 
 @app.get("/model/info")
-def model_info():
+def model_info(api_key: str = Depends(require_api_key)):
     return {
         "roc_auc": metrics["roc_auc"],
         "avg_precision": metrics["avg_precision"],
@@ -140,7 +162,7 @@ def model_info():
 
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(txn: Transaction):
+def predict(txn: Transaction, api_key: str = Depends(require_api_key)):
     input_df = preprocess(txn)
     prob = float(model.predict_proba(input_df)[0][1])
     explanation = get_shap_explanation(input_df)
@@ -153,7 +175,7 @@ def predict(txn: Transaction):
 
 
 @app.post("/predict/batch", response_model=BatchResponse)
-def predict_batch(req: BatchRequest):
+def predict_batch(req: BatchRequest, api_key: str = Depends(require_api_key)):
     if len(req.transactions) > 1000:
         raise HTTPException(status_code=400, detail="Max 1000 transactions per batch.")
     results = []
